@@ -1,12 +1,13 @@
 #include "window.h"
 
+#include "logger.h"
+
 i32 Window::width = DEF_WIDTH, Window::height = DEF_HEIGHT;
 Joystick Window::mainJoystick(0);
 
 void Window::ErrorCallback(i32 error, const char *description)
 {
-    LOGINIT_COUT();
-    Log(LOG_ERROR) << description << "\n";
+    LERROR(description << "\n");
     fprintf(stderr, "error: %s\n", description);
 }
 
@@ -18,8 +19,6 @@ void Window::OnWindowResize(GLFWwindow *window, i32 width, i32 height)
 
 void Window::InitializeWindow()
 {
-    // LOGINIT_COUT();
-
     // initialize glfw.
     if(!glfwInit())
     {
