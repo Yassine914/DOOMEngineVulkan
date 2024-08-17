@@ -8,11 +8,11 @@ Joystick Window::mainJoystick(0);
 void Window::ErrorCallback(i32 error, const char *description)
 {
     LERROR(description << "\n");
-    fprintf(stderr, "error: %s\n", description);
 }
 
 void Window::OnWindowResize(GLFWwindow *window, i32 width, i32 height)
 {
+    // TODO: resize with vulkan
     // glViewport(0, 0, width, height);
     Window::SetWindowSize(width, height);
 }
@@ -25,10 +25,10 @@ void Window::InitializeWindow()
         ErrorCallback(1, "failed to init GLFW.");
     }
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, GL_VRS_MAJOR);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, GL_VRS_MINOR);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
+    // TODO: handle vulkan viewport resizing.
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
     glfwSetErrorCallback(ErrorCallback);
 
@@ -56,34 +56,25 @@ void Window::InitializeWindow()
     }
     // clang-format on
 
+    u32 extentionCount = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &extentionCount, nullptr);
+    LINFO(true, "VulkanInstance Extension Count: " << extentionCount << "\n");
+
     if(!window)
     {
         ErrorCallback(1, "window was not correctly initialized");
         glfwTerminate();
     }
 
-    glfwMakeContextCurrent(window);
+    // TODO: setup vsync using vulkan.
+    // if(VSyncEnabled())
+    // glfwSwapInterval(1);
 
-    // TODO: rm OpenGL and add Vulkan
-    // if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    // if(resizeable)
     // {
-    // ErrorCallback(1, "couldn't load OpenGL");
+    //     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    //     glfwSetFramebufferSizeCallback(window, OnWindowResize);
     // }
-
-    // Log(LOG_INFO) << "OpenGL version: " << GLVersion.major << "." << GLVersion.minor << "\n";
-
-    // enable openGL error callback
-    // glEnable(GL_DEBUG_OUTPUT);
-    // glDebugMessageCallback(OpenGLErrorCallback, 0);
-
-    if(VSyncEnabled())
-        glfwSwapInterval(1);
-
-    if(resizeable)
-    {
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-        glfwSetFramebufferSizeCallback(window, OnWindowResize);
-    }
 
     // input callbacks
     glfwSetKeyCallback(window, Keyboard::KeyCallback);

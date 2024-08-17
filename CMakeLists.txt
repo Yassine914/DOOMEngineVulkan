@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty")
 set(PROJ_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+set(VULKAN_SDK "C:/VulkanSDK/1.3.290.0/")
 
 # ------------------- DOOM ENGINE ----------------------
 project(DOOMEngine)
@@ -22,9 +23,17 @@ target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RES_PATH="${PROJ_DIR}/
 # target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RES_PATH="./res/")
 
 # ----- LIBRARIES -----
+# GLFW
 add_subdirectory("${LIB_DIR}/GLFW")
 include_directories("${LIB_DIR}/GLFW/include/")
 
+# VULKAN
+# set(VK_LIB "${VK_SDK}/Lib")
+# set(VK_INCLUDE "${VK_SDK}/Include")
+# set(VK_found "True")
+find_package(Vulkan REQUIRED)
+# target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC ${VK_INCLUDE})
+# target_link_directories("${CMAKE_PROJECT_NAME}" PUBLIC ${VK_LIB})
 # include_directories("${LIB_DIR}/Eigen/")
 
 # add_library(glad STATIC "${LIB_DIR}/glad/src/glad.c" "src/main.cpp")
@@ -37,7 +46,7 @@ include_directories("${LIB_DIR}/GLFW/include/")
 # add_library(stb_image STATIC "${LIB_DIR}/stb_image/src/stb_image.cpp")
 # include_directories("${LIB_DIR}/stb_image/include/")
 
-target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE glfw)
+target_link_libraries("${CMAKE_PROJECT_NAME}" PRIVATE glfw Vulkan::Vulkan)
 
 # ----- DEFINES -----
 

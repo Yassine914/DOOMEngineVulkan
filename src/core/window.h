@@ -3,6 +3,7 @@
 #include "defines.h"
 #include <string>
 
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
 #include "../io/keyboard.h"
@@ -12,16 +13,13 @@
 #define DEF_HEIGHT 480
 #define DEF_WIDTH  640
 
-#define GL_VRS_MAJOR 4
-#define GL_VRS_MINOR 6
-
 class Window
 {
     private:
     static i32 width, height;
     i32 monitorWidth, monitorHeight;
     bool fullscreen, resizeable, vsync;
-    std::string title = "GLFW window";
+    std::string title;
 
     static Joystick mainJoystick;
 
@@ -33,11 +31,22 @@ class Window
     // clang-format off
     Window()
         :fullscreen{false}, resizeable{true},
-         vsync{true}, title{"GLFW window"},
+         vsync{true},
          monitorWidth{DEF_WIDTH}, monitorHeight{DEF_HEIGHT}
     {
+        title = "GLFW Window";
         width = DEF_WIDTH;
         height = DEF_HEIGHT;
+    }
+
+    Window(i32 width, i32 height, std::string title, bool fullscreen, bool vsync)
+        :title{title}, fullscreen{fullscreen}, vsync{vsync}
+    {
+        Window::width = width;
+        Window::height = height;
+
+        // TODO: set resizeable
+        resizeable = false;
     }
 
     // clang-format on
@@ -83,6 +92,7 @@ class Window
     // main game loop
     inline bool WindowShouldClose() { return glfwWindowShouldClose(window); }
     inline void SetWindowShouldClose(bool shouldClose) { glfwSetWindowShouldClose(window, shouldClose); }
+    inline void NewFrame() { glfwPollEvents(); }
 
     // glfw callbacks
     static void ErrorCallback(i32 error, const char *description);
