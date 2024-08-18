@@ -55,9 +55,12 @@ using std::chrono::system_clock;
 #define LOG_CONSOLE 0
 #define LOG_FILE    1
 
+#include <string.h>
+#define __FILENAME__ (strstr(__FILE__, "src") ? strstr(__FILE__, "src") + 3 : __FILE__)
+
 // default file for file output if one isn't specified
 #define LOG_DEFAULT_FILE "logger.txt"
-#define FILE_INFO        __FILE__, __LINE__
+#define FILE_INFO        __FILENAME__, __LINE__
 
 // macro for logging with file info.
 #define LOG(x, y) Log(x, FILE_INFO) << y

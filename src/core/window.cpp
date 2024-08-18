@@ -55,11 +55,6 @@ void Window::InitializeWindow()
             nullptr, nullptr);
     }
     // clang-format on
-
-    u32 extentionCount = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &extentionCount, nullptr);
-    LINFO(true, "VulkanInstance Extension Count: " << extentionCount << "\n");
-
     if(!window)
     {
         ErrorCallback(1, "window was not correctly initialized");

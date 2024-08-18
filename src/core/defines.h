@@ -1,5 +1,7 @@
 #pragma once
 
+#define ENGINE_DEBUG true
+
 // unsigned int types
 typedef unsigned char u8;
 typedef unsigned short u16;

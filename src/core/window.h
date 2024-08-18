@@ -1,9 +1,6 @@
 #pragma once
 
-#include "defines.h"
-#include <string>
-
-#define GLFW_INCLUDE_VULKAN
+#include <DEngine.h>
 #include <GLFW/glfw3.h>
 
 #include "../io/keyboard.h"

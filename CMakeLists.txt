@@ -23,18 +23,15 @@ target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RES_PATH="${PROJ_DIR}/
 # target_compile_definitions("${CMAKE_PROJECT_NAME}" PUBLIC RES_PATH="./res/")
 
 # ----- LIBRARIES -----
+include_directories("${SRC_DIR}/")
+
+
 # GLFW
 add_subdirectory("${LIB_DIR}/GLFW")
 include_directories("${LIB_DIR}/GLFW/include/")
 
-# VULKAN
-# set(VK_LIB "${VK_SDK}/Lib")
-# set(VK_INCLUDE "${VK_SDK}/Include")
-# set(VK_found "True")
+# VK
 find_package(Vulkan REQUIRED)
-# target_include_directories("${CMAKE_PROJECT_NAME}" PUBLIC ${VK_INCLUDE})
-# target_link_directories("${CMAKE_PROJECT_NAME}" PUBLIC ${VK_LIB})
-# include_directories("${LIB_DIR}/Eigen/")
 
 # add_library(glad STATIC "${LIB_DIR}/glad/src/glad.c" "src/main.cpp")
 # include_directories("${LIB_DIR}/glad/include/")
