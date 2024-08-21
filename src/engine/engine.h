@@ -5,15 +5,26 @@ class Engine
 {
     private:
     Window *window;
+
+    //_____ VK VARS _____
     vk::Instance vkInstance{nullptr};
-    vk::DebugUtilsMessengerEXT DebugMessenger{nullptr};
+
+    // debug callback and dynamic loader
+    vk::DebugUtilsMessengerEXT debugMessenger{nullptr};
+    vk::DispatchLoaderDynamic dldi;
+
+    // device
+    vk::PhysicalDevice physicalDevice{nullptr};
 
     public:
     Engine();
 
+    //_____ VK SPECIFIC _____
     void MakeVKInstance(std::string name);
-    bool VKSupports(std::vector<const char *> &extensions, std::vector<const char *> &layers);
+    void MakeVKDebugMessenger();
+    void ChooseVKPhysicalDevice();
 
+    //_____ ENGINE SPECIFIC _____
     bool RunEngine()
     {
         window->NewFrame();
