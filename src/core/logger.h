@@ -207,7 +207,7 @@ class Logger
         currentLevel = (LogLevel) ll;
 
         LOCK_MUTEX(mut);
-        if((LogLevel) ll > Logger::logLevel)
+        if((LogLevel)ll > Logger::logLevel)
             return *this;
 
         if(Logger::outType != OutputType::FILEONLY)

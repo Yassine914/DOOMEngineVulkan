@@ -3,13 +3,27 @@
 #include <DEngine.h>
 #include "../core/window.h"
 
-#pragma region Swapchain
+#pragma region Swapchain and Pipeline
+
+struct SwapChainFrame
+{
+    vk::Image image;
+    vk::ImageView imageView;
+};
+
 struct SwapChainBundle
 {
     vk::SwapchainKHR swapchain;
-    std::vector<vk::Image> images;
+    std::vector<SwapChainFrame> frames;
     vk::Format format;
     vk::Extent2D extent;
+};
+
+struct GraphicsPipelineBundle
+{
+    vk::PipelineLayout layout;
+    vk::RenderPass renderPass;
+    vk::Pipeline pipeline;
 };
 
 #pragma endregion
@@ -36,6 +50,9 @@ class Engine
     // present (swapchain)
     SwapChainBundle swapchain;
 
+    // pipeline
+    GraphicsPipelineBundle pipeline;
+
     public:
     Engine();
 
@@ -51,6 +68,9 @@ class Engine
     // present
     void MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface, i32 width,
                          i32 height);
+
+    // pipeline
+    void MakeVKGraphicsPipeline();
 
     //_____ ENGINE SPECIFIC _____
     bool RunEngine()

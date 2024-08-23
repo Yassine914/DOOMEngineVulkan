@@ -1,5 +1,7 @@
 #include "engine.h"
 
+#include "shader.h"
+
 // constructor
 Engine::Engine() : window{new Window()}
 {
@@ -23,6 +25,8 @@ Engine::Engine() : window{new Window()}
     MakeVKQueues(logicalDevice, physicalDevice);
 
     MakeVKSwapChain(logicalDevice, physicalDevice, surface, window->GetWidth(), window->GetHeight());
+
+    MakeVKGraphicsPipeline();
 }
 
 // clang-format off
@@ -545,18 +549,271 @@ void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physic
         exit(505);
     }
 
-    bundle.images = logicalDevice.getSwapchainImagesKHR(bundle.swapchain);
+    std::vector<vk::Image> images = logicalDevice.getSwapchainImagesKHR(bundle.swapchain);
+    bundle.frames.resize(images.size());
+    for(u64 i = 0; i < images.size(); i++)
+    {
+        // creating an image view per image.
+        vk::ImageViewCreateInfo imViewInfo{};
+        imViewInfo.image = images[i];
+        imViewInfo.viewType = vk::ImageViewType::e2D;
+        imViewInfo.format = fmt.format;
+        
+        imViewInfo.components.r = vk::ComponentSwizzle::eIdentity;
+        imViewInfo.components.g = vk::ComponentSwizzle::eIdentity;
+        imViewInfo.components.b = vk::ComponentSwizzle::eIdentity;
+        imViewInfo.components.a = vk::ComponentSwizzle::eIdentity;
+        
+        imViewInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+        imViewInfo.subresourceRange.baseMipLevel = 0;
+        imViewInfo.subresourceRange.levelCount = 1;
+        imViewInfo.subresourceRange.baseArrayLayer = 0;
+        imViewInfo.subresourceRange.layerCount = 1;
+        
+        bundle.frames[i].image = images[i];
+        bundle.frames[i].imageView = logicalDevice.createImageView(imViewInfo);
+    }
+
     bundle.format = fmt.format;
     bundle.extent = ext;
 
-    this->swapchain = bundle;
+    swapchain = bundle;
 }
 
 #pragma endregion
+
+#pragma region Pipeline
+
+struct GraphicsPipelineInBundle
+{
+    vk::Device device;
+    vk::Extent2D swapchainExtent;
+    vk::Format swapchainImageFormat;
+
+    std::string vertexFilepath;
+    std::string fragmentFilepath;
+};
+
+vk::PipelineLayout CreateGraphicsPipelineLayout(vk::Device device)
+{
+    vk::PipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.flags = vk::PipelineLayoutCreateFlags();
+    layoutInfo.setLayoutCount = 0;
+    layoutInfo.pushConstantRangeCount = 0;
+
+    try
+    {
+        return device.createPipelineLayout(layoutInfo);
+    }
+    catch (vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't create pipeline layout.\n\t" << err.what() << "\n");
+        return nullptr;
+    }
+}
+
+vk::RenderPass CreateGraphicsPipelineRenderPass(vk::Device device, vk::Format fmt)
+{
+    vk::AttachmentDescription colorAtt{};
+    colorAtt.flags = vk::AttachmentDescriptionFlags();
+    colorAtt.format = fmt;
+    colorAtt.samples = vk::SampleCountFlagBits::e1;
+    colorAtt.loadOp = vk::AttachmentLoadOp::eClear;
+    colorAtt.storeOp  = vk::AttachmentStoreOp::eStore;
+    colorAtt.stencilLoadOp = vk::AttachmentLoadOp::eDontCare;
+    colorAtt.stencilStoreOp  = vk::AttachmentStoreOp::eDontCare;
+    colorAtt.initialLayout = vk::ImageLayout::eUndefined;
+    colorAtt.finalLayout = vk::ImageLayout::ePresentSrcKHR;
+
+    vk::AttachmentReference colorAttRef{};
+    colorAttRef.attachment = 0;
+    colorAttRef.layout = vk::ImageLayout::eColorAttachmentOptimal;
+
+    vk::SubpassDescription subpass{};
+    subpass.flags = vk::SubpassDescriptionFlags();
+    subpass.pipelineBindPoint = vk::PipelineBindPoint::eGraphics;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &colorAttRef;
+
+    vk::RenderPassCreateInfo renderPassInfo{};
+    renderPassInfo.flags = vk::RenderPassCreateFlags();
+    renderPassInfo.attachmentCount = 1;
+    renderPassInfo.pAttachments = &colorAtt;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+
+    try
+    {
+        return device.createRenderPass(renderPassInfo);
+    }
+    catch(vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't create render pass.\n\t" << err.what() << "\n");
+    }
+
+    return nullptr;
+}
+
+GraphicsPipelineBundle CreateGraphicsPipeline(GraphicsPipelineInBundle spec)
+{
+    vk::GraphicsPipelineCreateInfo pipelineInfo{};
+    pipelineInfo.flags = vk::PipelineCreateFlags();
+
+    std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
+
+    // vertex input
+    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+    vertexInputInfo.flags =  vk::PipelineVertexInputStateCreateFlags();
+    vertexInputInfo.vertexAttributeDescriptionCount = 0;
+    vertexInputInfo.vertexBindingDescriptionCount = 0;
+    pipelineInfo.pVertexInputState = &vertexInputInfo;
+
+    // input assembly
+    vk::PipelineInputAssemblyStateCreateInfo inputAssemblyInfo{};
+    inputAssemblyInfo.flags = vk::PipelineInputAssemblyStateCreateFlags();
+    inputAssemblyInfo.topology = vk::PrimitiveTopology::eTriangleList;
+    pipelineInfo.pInputAssemblyState = &inputAssemblyInfo;
+
+    // vertex shader
+    vk::ShaderModule vertShader = DEUtil::CreateShaderModule(spec.vertexFilepath.c_str(), spec.device);
+    vk::PipelineShaderStageCreateInfo vertShaderInfo{};
+    vertShaderInfo.flags = vk::PipelineShaderStageCreateFlags();
+    vertShaderInfo.stage = vk::ShaderStageFlagBits::eVertex;
+    vertShaderInfo.module = vertShader;
+    vertShaderInfo.pName = "main"; // NOTE: hardcoded name
+    shaderStages.push_back(vertShaderInfo);
+    
+    // viewport and scissor
+    vk::Viewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = spec.swapchainExtent.width;
+    viewport.height = spec.swapchainExtent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    vk::Rect2D scissor{};
+    scissor.offset.x = 0.0f;
+    scissor.offset.y = 0.0f;
+    scissor.extent = spec.swapchainExtent;
+
+    vk::PipelineViewportStateCreateInfo viewportStateInfo{};
+    viewportStateInfo.flags = vk::PipelineViewportStateCreateFlags();
+    viewportStateInfo.viewportCount = 1;
+    viewportStateInfo.pViewports = &viewport;
+    viewportStateInfo.scissorCount = 1;
+    viewportStateInfo.pScissors = &scissor;
+    pipelineInfo.pViewportState = &viewportStateInfo;
+
+    // rasterizer
+    vk::PipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.flags = vk::PipelineRasterizationStateCreateFlags();
+    rasterizer.depthClampEnable = VK_FALSE;
+    rasterizer.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer.polygonMode = vk::PolygonMode::eFill;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = vk::CullModeFlagBits::eBack;
+    rasterizer.frontFace = vk::FrontFace::eClockwise;
+    rasterizer.depthBiasEnable = VK_FALSE;
+    pipelineInfo.pRasterizationState = &rasterizer;
+
+    // fragment shader
+    vk::ShaderModule fragShader = DEUtil::CreateShaderModule(spec.fragmentFilepath.c_str(), spec.device);
+    vk::PipelineShaderStageCreateInfo fragShaderInfo{};
+    fragShaderInfo.flags = vk::PipelineShaderStageCreateFlags();
+    fragShaderInfo.stage = vk::ShaderStageFlagBits::eFragment;
+    fragShaderInfo.module = fragShader;
+    fragShaderInfo.pName = "main"; // NOTE: hardcoded name
+    shaderStages.push_back(fragShaderInfo);
+
+    pipelineInfo.stageCount = shaderStages.size();
+    pipelineInfo.pStages = shaderStages.data();
+
+    // multisampling
+    vk::PipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.flags = vk::PipelineMultisampleStateCreateFlags();
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+    pipelineInfo.pMultisampleState = &multisampling;
+
+    // color blend
+    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
+    colorBlendAttachment.colorWriteMask = vk::ColorComponentFlagBits::eR |
+        vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB |vk::ColorComponentFlagBits::eA;
+    colorBlendAttachment.blendEnable = VK_FALSE;
+    
+    vk::PipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.flags = vk::PipelineColorBlendStateCreateFlags();
+    colorBlend.logicOpEnable = VK_FALSE;
+    colorBlend.logicOp = vk::LogicOp::eCopy;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments =  &colorBlendAttachment;
+    colorBlend.blendConstants[0] = 0.0f;
+    colorBlend.blendConstants[1] = 0.0f;
+    colorBlend.blendConstants[2] = 0.0f;
+    colorBlend.blendConstants[3] = 0.0f;
+    pipelineInfo.pColorBlendState = &colorBlend;
+
+    // pipeline layout
+    vk::PipelineLayout layout = CreateGraphicsPipelineLayout(spec.device);
+    pipelineInfo.layout = layout;
+
+    // render pass
+    vk::RenderPass renderPass = CreateGraphicsPipelineRenderPass(spec.device, spec.swapchainImageFormat);
+    pipelineInfo.renderPass = renderPass;
+
+    // misc
+    pipelineInfo.basePipelineHandle = nullptr;
+
+    // pipeline
+    vk::Pipeline pipeline;
+    try
+    {
+        pipeline = spec.device.createGraphicsPipeline(nullptr, pipelineInfo).value;
+    }
+    catch(vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: failed to create graphics pipeline.\n\t" << err.what() << "\n");
+    }
+    
+
+    GraphicsPipelineBundle out;
+    out.layout = layout;
+    out.renderPass = renderPass;
+    out.pipeline = pipeline;
+    
+    spec.device.destroyShaderModule(vertShader);
+    spec.device.destroyShaderModule(fragShader);
+    return out;
+}
+
+void Engine::MakeVKGraphicsPipeline()
+{
+    GraphicsPipelineInBundle spec = {
+        .device           = logicalDevice,
+        .swapchainExtent  = swapchain.extent,
+        .swapchainImageFormat = swapchain.format,
+
+        .vertexFilepath   = RES_PATH"shaders/basic.vert.spv", // NOTE: hardcoded filepath
+        .fragmentFilepath = RES_PATH"shaders/basic.frag.spv", // NOTE: hardcoded filepath
+    };
+
+    pipeline = CreateGraphicsPipeline(spec);
+}
+
+#pragma endregion
+
 // clang-format on
 
 Engine::~Engine()
 {
+    logicalDevice.destroyPipeline(pipeline.pipeline);
+    logicalDevice.destroyPipelineLayout(pipeline.layout);
+    logicalDevice.destroyRenderPass(pipeline.renderPass);
+
+    for(auto frame : swapchain.frames)
+        logicalDevice.destroyImageView(frame.imageView);
+
     logicalDevice.destroySwapchainKHR(swapchain.swapchain);
     logicalDevice.destroy();
 

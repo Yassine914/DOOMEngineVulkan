@@ -5,6 +5,7 @@
 
 #include <vulkan/vulkan.hpp>
 
+#include <fstream>
 #include <vector>
 #include <string>
 #include <set>

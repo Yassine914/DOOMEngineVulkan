@@ -12,7 +12,7 @@ for /r %%f in (*.vert) do (
     echo res/shaders/!vertFile!
     echo     compiled: res/shaders/!vertFile!.spv
     rem compile
-    C:\VulkanSDK\1.3.290.0\Bin\glslc.exe !vertFile! -o ./!vertFile!.spv
+    glslc !vertFile! -o ./!vertFile!.spv
 )
 
 echo -------------------------------
@@ -25,9 +25,8 @@ for /r %%f in (*.frag) do (
     echo res/shaders/!fragFile!
     echo     compiled: res/shaders/!fragFile!.spv
     rem compile
-    C:\VulkanSDK\1.3.290.0\Bin\glslc.exe !fragFile! -o ./!fragFile!.spv
+    glslc !fragFile! -o ./!fragFile!.spv
 )
 
 popd
-
 exit
