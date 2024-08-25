@@ -9,6 +9,8 @@ struct SwapChainFrame
 {
     vk::Image image;
     vk::ImageView imageView;
+    vk::Framebuffer frameBuffer;
+    vk::CommandBuffer commandBuffer;
 };
 
 struct SwapChainBundle
@@ -32,6 +34,7 @@ class Engine
 {
     private:
     Window *window;
+    i32 width, height;
 
     //_____ VK VARS _____
     vk::Instance vkInstance{nullptr};
@@ -53,9 +56,15 @@ class Engine
     // pipeline
     GraphicsPipelineBundle pipeline;
 
-    public:
-    Engine();
+    // commands
+    vk::CommandPool commandPool;
+    vk::CommandBuffer mainCommandBuffer;
 
+    // synchronization
+    vk::Fence inFlightFence;
+    vk::Semaphore imageAvailable, renderFinished;
+
+    private:
     //_____ VK SPECIFIC _____
     void MakeVKInstance(std::string name);
     void MakeVKDebugMessenger();
@@ -66,18 +75,16 @@ class Engine
     void MakeVKQueues(vk::Device device, vk::PhysicalDevice phyDevice);
 
     // present
-    void MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface, i32 width,
-                         i32 height);
+    void MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface);
 
     // pipeline
     void MakeVKGraphicsPipeline();
 
-    //_____ ENGINE SPECIFIC _____
-    bool RunEngine()
-    {
-        window->NewFrame();
-        return !window->WindowShouldClose();
-    }
+    // finalizing initialization
+    void InitializeVKDrawing();
 
+    public:
+    // constructor and destructor
+    Engine(i32 width, i32 height, Window *window);
     ~Engine();
 };

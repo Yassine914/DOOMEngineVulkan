@@ -1,15 +1,13 @@
 #include "DEngine.h"
-#include "engine/engine.h"
+#include "app/app.h"
 
 int main()
 {
     LINFO(false, "DOOM Engine v0.0.1\n");
 
-    Engine *engine = new Engine();
+    App *app = new App(1920 / 2, 1080 / 2);
 
-    while(engine->RunEngine())
-    {
-    }
+    app->Run();
 
-    return 0;
+    delete app;
 }

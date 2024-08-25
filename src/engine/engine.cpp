@@ -3,16 +3,8 @@
 #include "shader.h"
 
 // constructor
-Engine::Engine() : window{new Window()}
+Engine::Engine(i32 width, i32 height, Window *window) : width{width}, height{height}, window{window}
 {
-    //_____ WINDOW INIT ______
-    window->SetWindowSize(1920 / 2, 1080 / 2);
-    window->SetFullscreen(false);
-    window->SetResizeable(true);
-    window->SetVSync(true);
-
-    window->InitializeWindow();
-
     //_____ VULKAN INIT _____
     MakeVKInstance(window->GetTitle());
     dldi = vk::DispatchLoaderDynamic(vkInstance, vkGetInstanceProcAddr);
@@ -24,9 +16,11 @@ Engine::Engine() : window{new Window()}
     MakeVKLogicalDevice(physicalDevice);
     MakeVKQueues(logicalDevice, physicalDevice);
 
-    MakeVKSwapChain(logicalDevice, physicalDevice, surface, window->GetWidth(), window->GetHeight());
+    MakeVKSwapChain(logicalDevice, physicalDevice, surface);
 
     MakeVKGraphicsPipeline();
+
+    InitializeVKDrawing();
 }
 
 // clang-format off
@@ -496,7 +490,7 @@ vk::Extent2D ChooseSwapChainExtent(vk::SurfaceCapabilitiesKHR capabilities, u32 
 }
 
 void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physicalDevice, 
-                             vk::SurfaceKHR surface, i32 width, i32 height)
+                             vk::SurfaceKHR surface)
 {
     SwapChainSupportDetails support = QuerySwapChainSupport(physicalDevice, surface);
 
@@ -803,16 +797,176 @@ void Engine::MakeVKGraphicsPipeline()
 
 #pragma endregion
 
+#pragma region InitFinalization 
+
+struct FrameBufferIn
+{
+    vk::Device device;
+    vk::RenderPass renderPass;
+    vk::Extent2D swapchainExtent;
+};
+
+void CreateFrameBuffers(FrameBufferIn bufferIn, std::vector<SwapChainFrame> &frames)
+{
+    for(i32 i = 0; i < frames.size(); i++)
+    {
+        std::vector<vk::ImageView> att = {
+            frames[i].imageView
+        };
+
+        vk::FramebufferCreateInfo bufferInfo{};
+        bufferInfo.flags = vk::FramebufferCreateFlags();
+        bufferInfo.attachmentCount = att.size();
+        bufferInfo.pAttachments = att.data();
+        bufferInfo.renderPass = bufferIn.renderPass;
+        bufferInfo.width = bufferIn.swapchainExtent.width;
+        bufferInfo.height = bufferIn.swapchainExtent.height;
+        bufferInfo.layers = 1;
+
+        try
+        {
+            frames[i].frameBuffer = bufferIn.device.createFramebuffer(bufferInfo);
+        }
+        catch(vk::SystemError err)
+        {
+            LERROR("VULKAN ERROR: couldn't create a frame buffer.\n\t" << err.what() << "\n");
+        }
+    }
+}
+
+struct CommandBufferIn
+{
+    vk::Device device;
+    vk::CommandPool commandPool;
+    std::vector<SwapChainFrame> &frames;
+};
+
+vk::CommandPool CreateCommandPool(vk::Device device, vk::PhysicalDevice phyDevice, vk::SurfaceKHR surface)
+{
+    QueueFamilyIndices qFamilyIndices = FindQueueFamilies(phyDevice, surface);
+
+    vk::CommandPoolCreateInfo poolInfo{};
+    poolInfo.flags = vk::CommandPoolCreateFlags() | vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+    poolInfo.queueFamilyIndex = qFamilyIndices.graphicsFamily.value();
+
+    try
+    {
+        return device.createCommandPool(poolInfo);
+    }
+    catch(vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't create a command pool.\n\t" << err.what() << "\n");
+        return nullptr;
+    }
+}
+
+vk::CommandBuffer CreateCommandBuffers(CommandBufferIn cmdIn)
+{
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = cmdIn.commandPool;
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
+
+    for(i32 i = 0; i < cmdIn.frames.size(); i++)
+    {
+        try
+        {
+            cmdIn.frames[i].commandBuffer = cmdIn.device.allocateCommandBuffers(allocInfo)[0];
+        }
+        catch(vk::SystemError err)
+        {
+            LERROR("VULKAN ERROR: couldn't allocate command buffers.\n\t" << err.what() << "\n");
+        }
+    }
+
+    try
+    {
+        vk::CommandBuffer mainBuff = cmdIn.device.allocateCommandBuffers(allocInfo)[0];
+        return mainBuff;
+    }
+    catch(vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't allocate main command buffer.\n\t" << err.what() << "\n");
+        return nullptr;
+    }
+}
+
+vk::Semaphore CreateSemaphore(vk::Device device)
+{
+    vk::SemaphoreCreateInfo spInfo{};
+    spInfo.flags = vk::SemaphoreCreateFlags();
+
+    try
+    {
+        return device.createSemaphore(spInfo);
+    }
+    catch (vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't create semaphore.\n\t" << err.what() << "\n");
+        return nullptr;
+    }
+}
+
+vk::Fence CreateFence(vk::Device device)
+{
+    vk::FenceCreateInfo fenceInfo{};
+    fenceInfo.flags = vk::FenceCreateFlags() | vk::FenceCreateFlagBits::eSignaled;
+
+    try
+    {
+        return device.createFence(fenceInfo);
+    }
+    catch(vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't create a fence.\n\t" << err.what() << "\n");
+        return nullptr;
+    }
+}
+
+void Engine::InitializeVKDrawing()
+{
+    FrameBufferIn frameBufferIn = {
+        .device = logicalDevice,
+        .renderPass = pipeline.renderPass,
+        .swapchainExtent = swapchain.extent,
+    };
+    CreateFrameBuffers(frameBufferIn, swapchain.frames);
+    
+    commandPool = CreateCommandPool(logicalDevice, physicalDevice, surface);
+
+    CommandBufferIn cmdIn = {
+        .device = logicalDevice,
+        .commandPool = commandPool,
+        .frames = swapchain.frames,
+    };
+    mainCommandBuffer = CreateCommandBuffers(cmdIn);
+
+    inFlightFence = CreateFence(logicalDevice);
+    imageAvailable = CreateSemaphore(logicalDevice);
+    renderFinished = CreateSemaphore(logicalDevice);
+}
+
+#pragma endregion
 // clang-format on
 
 Engine::~Engine()
 {
+    logicalDevice.destroyFence(inFlightFence);
+
+    logicalDevice.destroySemaphore(imageAvailable);
+    logicalDevice.destroySemaphore(renderFinished);
+
+    logicalDevice.destroyCommandPool(commandPool);
+
     logicalDevice.destroyPipeline(pipeline.pipeline);
     logicalDevice.destroyPipelineLayout(pipeline.layout);
     logicalDevice.destroyRenderPass(pipeline.renderPass);
 
     for(auto frame : swapchain.frames)
+    {
         logicalDevice.destroyImageView(frame.imageView);
+        logicalDevice.destroyFramebuffer(frame.frameBuffer);
+    }
 
     logicalDevice.destroySwapchainKHR(swapchain.swapchain);
     logicalDevice.destroy();

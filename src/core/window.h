@@ -58,6 +58,7 @@ class Window
     inline GLFWmonitor *GetMonitor() const { return this->monitor; }
 
     inline bool VSyncEnabled() const { return this->vsync; }
+    inline f32 GetCurrentTime() const { return glfwGetTime(); }
 
     // setter methods
     static inline void SetWindowSize(i32 width, i32 height)
@@ -81,7 +82,11 @@ class Window
     inline void SetFullscreen(bool fs) { this->fullscreen = fs; }
     inline void SetResizeable(bool rs) { this->resizeable = rs; }
     inline void SetVSync(bool vs) { this->vsync = vs; }
-    inline void SetWindowTitle(std::string title) { this->title = title; }
+    inline void SetWindowTitle(std::string title)
+    {
+        glfwSetWindowTitle(window, title.c_str());
+        this->title = title;
+    }
 
     // initialization
     void InitializeWindow();

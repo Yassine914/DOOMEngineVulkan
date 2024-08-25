@@ -11,7 +11,7 @@ set(VULKAN_SDK "C:/VulkanSDK/1.3.290.0/")
 project(DOOMEngine)
 
 # ----- SOURCE -----
-file(GLOB SRC CMAKE_CONFIGURE_DEPENDS "${SRC_DIR}/*/*.cpp")
+file(GLOB_RECURSE SRC CMAKE_CONFIGURE_DEPENDS "${SRC_DIR}/*.cpp")
 
 add_executable(DOOMEngine "${SRC}" "src/main.cpp")
 

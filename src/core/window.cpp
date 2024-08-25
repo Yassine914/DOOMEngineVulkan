@@ -89,6 +89,9 @@ void Window::InitializeWindow()
 
 Window::~Window()
 {
-    glfwDestroyWindow(window);
-    glfwTerminate();
+    if(window)
+        glfwDestroyWindow(window);
+
+    if(!GLFW_NOT_INITIALIZED)
+        glfwTerminate();
 }
