@@ -14,9 +14,9 @@ Engine::Engine(i32 width, i32 height, Window *window) : width{width}, height{hei
 
     ChooseVKPhysicalDevice();
     MakeVKLogicalDevice(physicalDevice);
-    MakeVKQueues(logicalDevice, physicalDevice);
+    MakeVKQueues(device, physicalDevice);
 
-    MakeVKSwapChain(logicalDevice, physicalDevice, surface);
+    MakeVKSwapChain(device, physicalDevice, surface);
 
     MakeVKGraphicsPipeline();
 
@@ -338,13 +338,13 @@ struct QueueFamilyIndices
     inline bool IsComplete() { return graphicsFamily.has_value() && presentFamily.has_value(); }
 };
 
-QueueFamilyIndices FindQueueFamilies(vk::PhysicalDevice device, vk::SurfaceKHR surface)
+QueueFamilyIndices FindQueueFamilies(vk::PhysicalDevice phyDevice, vk::SurfaceKHR surface)
 {
     QueueFamilyIndices indices;
-    std::vector<vk::QueueFamilyProperties> queueFamilies = device.getQueueFamilyProperties();
+    std::vector<vk::QueueFamilyProperties> queueFamilies = phyDevice.getQueueFamilyProperties();
 
     if(ENGINE_DEBUG)
-        LDEBUG(true, "physical device: \"" << device.getProperties().deviceName << "\" can support "
+        LDEBUG(true, "physical device: \"" << phyDevice.getProperties().deviceName << "\" can support "
                                            << queueFamilies.size() << " queue families\n");
 
     i32 i = 0;
@@ -353,7 +353,7 @@ QueueFamilyIndices FindQueueFamilies(vk::PhysicalDevice device, vk::SurfaceKHR s
         if(qFamily.queueFlags & vk::QueueFlagBits::eGraphics)
             indices.graphicsFamily = i;
 
-        if(device.getSurfaceSupportKHR(i, surface))
+        if(phyDevice.getSurfaceSupportKHR(i, surface))
             indices.presentFamily = i;
 
         if(indices.IsComplete())
@@ -365,9 +365,9 @@ QueueFamilyIndices FindQueueFamilies(vk::PhysicalDevice device, vk::SurfaceKHR s
     return indices;
 }
 
-void Engine::MakeVKLogicalDevice(vk::PhysicalDevice device)
+void Engine::MakeVKLogicalDevice(vk::PhysicalDevice phyDevice)
 {
-    QueueFamilyIndices indices = FindQueueFamilies(device, surface);
+    QueueFamilyIndices indices = FindQueueFamilies(phyDevice, surface);
     
     std::vector<u32> uniqueIndices;
     uniqueIndices.push_back(indices.graphicsFamily.value());
@@ -409,7 +409,7 @@ void Engine::MakeVKLogicalDevice(vk::PhysicalDevice device)
 
     try
     {
-        logicalDevice = physicalDevice.createDevice(deviceInfo);
+        device = phyDevice.createDevice(deviceInfo);
 
         if(ENGINE_DEBUG)
             LINFO(true, "GPU has been successfully abstracted\n");
@@ -421,11 +421,11 @@ void Engine::MakeVKLogicalDevice(vk::PhysicalDevice device)
     }
 }
 
-void Engine::MakeVKQueues(vk::Device device, vk::PhysicalDevice phyDevice)
+void Engine::MakeVKQueues(vk::Device logDevice, vk::PhysicalDevice phyDevice)
 {
     QueueFamilyIndices indices = FindQueueFamilies(phyDevice, surface);
-    graphicsQueue = device.getQueue(indices.graphicsFamily.value(), 0);
-    presentQueue = device.getQueue(indices.presentFamily.value(), 0);
+    graphicsQueue = logDevice.getQueue(indices.graphicsFamily.value(), 0);
+    presentQueue = logDevice.getQueue(indices.presentFamily.value(), 0);
 }
 
 struct SwapChainSupportDetails
@@ -435,13 +435,13 @@ struct SwapChainSupportDetails
     std::vector<vk::PresentModeKHR> presentModes;
 };
 
-SwapChainSupportDetails QuerySwapChainSupport(vk::PhysicalDevice device, vk::SurfaceKHR surface)
+SwapChainSupportDetails QuerySwapChainSupport(vk::PhysicalDevice phyDevice, vk::SurfaceKHR surface)
 {
     SwapChainSupportDetails support;
 
-    support.capabilities = device.getSurfaceCapabilitiesKHR(surface);
-    support.formats = device.getSurfaceFormatsKHR(surface);
-    support.presentModes = device.getSurfacePresentModesKHR(surface);
+    support.capabilities = phyDevice.getSurfaceCapabilitiesKHR(surface);
+    support.formats = phyDevice.getSurfaceFormatsKHR(surface);
+    support.presentModes = phyDevice.getSurfacePresentModesKHR(surface);
     
     return support;   
 }
@@ -784,7 +784,7 @@ GraphicsPipelineBundle CreateGraphicsPipeline(GraphicsPipelineInBundle spec)
 void Engine::MakeVKGraphicsPipeline()
 {
     GraphicsPipelineInBundle spec = {
-        .device           = logicalDevice,
+        .device           = device,
         .swapchainExtent  = swapchain.extent,
         .swapchainImageFormat = swapchain.format,
 
@@ -926,50 +926,142 @@ vk::Fence CreateFence(vk::Device device)
 void Engine::InitializeVKDrawing()
 {
     FrameBufferIn frameBufferIn = {
-        .device = logicalDevice,
+        .device = device,
         .renderPass = pipeline.renderPass,
         .swapchainExtent = swapchain.extent,
     };
     CreateFrameBuffers(frameBufferIn, swapchain.frames);
     
-    commandPool = CreateCommandPool(logicalDevice, physicalDevice, surface);
+    commandPool = CreateCommandPool(device, physicalDevice, surface);
 
     CommandBufferIn cmdIn = {
-        .device = logicalDevice,
+        .device = device,
         .commandPool = commandPool,
         .frames = swapchain.frames,
     };
     mainCommandBuffer = CreateCommandBuffers(cmdIn);
 
-    inFlightFence = CreateFence(logicalDevice);
-    imageAvailable = CreateSemaphore(logicalDevice);
-    renderFinished = CreateSemaphore(logicalDevice);
+    inFlightFence = CreateFence(device);
+    imageAvailable = CreateSemaphore(device);
+    renderFinished = CreateSemaphore(device);
 }
 
 #pragma endregion
+
+#pragma region Drawing
+
+void Engine::RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx)
+{
+    vk::CommandBufferBeginInfo beginInfo{};
+    try
+    {
+        commandBuffer.begin(beginInfo);
+    }
+    catch (vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't begin a command buffer.\n\t" << err.what() << "\n");
+    }
+
+    vk::RenderPassBeginInfo passInfo{};
+    passInfo.renderPass = pipeline.renderPass;
+    passInfo.framebuffer = swapchain.frames[imageIdx].frameBuffer;
+    passInfo.renderArea.offset.x = 0;
+    passInfo.renderArea.offset.x = 0;
+    passInfo.renderArea.extent = swapchain.extent;
+
+    vk::ClearValue clearColor = {std::array<f32, 4>{1.0f, 0.5f, 0.25f, 1.0f}};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &clearColor;
+
+    commandBuffer.beginRenderPass(&passInfo, vk::SubpassContents::eInline);
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.pipeline);
+
+    commandBuffer.draw(3, 1, 0, 0);
+
+    commandBuffer.endRenderPass();
+
+    try
+    {
+        commandBuffer.end();
+    }
+    catch (vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't end a command buffer.\n\t" << err.what() << "\n");
+    }
+
+}
+
+void Engine::Render()
+{
+    device.waitForFences(1, &inFlightFence, VK_TRUE, UINT64_MAX);
+    device.resetFences(1, &inFlightFence);
+
+    u32 imageIdx = device.acquireNextImageKHR(swapchain.swapchain, UINT64_MAX, imageAvailable, nullptr).value;
+
+    vk::CommandBuffer cmdBuffer = swapchain.frames[imageIdx].commandBuffer;
+    cmdBuffer.reset();
+
+    RecordVKDrawCommands(cmdBuffer, imageIdx);
+
+    vk::SubmitInfo submitInfo{};
+    vk::Semaphore waitSemaphores[] = {imageAvailable};
+    vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmdBuffer;
+    vk::Semaphore signalSemaphores[] = {renderFinished};
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    try
+    {
+        graphicsQueue.submit(submitInfo, inFlightFence);
+    }
+    catch (vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't submit draw command buffer to graphics queue.\n\t" << err.what() << "\n");
+    }
+
+    vk::PresentInfoKHR presentInfo{};
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores; // NOTE: might be wrong
+    vk::SwapchainKHR swapchains[] = {swapchain.swapchain};
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = swapchains;
+    presentInfo.pImageIndices = &imageIdx;
+
+    presentQueue.presentKHR(presentInfo);
+}
+
+#pragma endregion
+
 // clang-format on
 
 Engine::~Engine()
 {
-    logicalDevice.destroyFence(inFlightFence);
+    device.waitIdle();
 
-    logicalDevice.destroySemaphore(imageAvailable);
-    logicalDevice.destroySemaphore(renderFinished);
+    device.destroyFence(inFlightFence);
 
-    logicalDevice.destroyCommandPool(commandPool);
+    device.destroySemaphore(imageAvailable);
+    device.destroySemaphore(renderFinished);
 
-    logicalDevice.destroyPipeline(pipeline.pipeline);
-    logicalDevice.destroyPipelineLayout(pipeline.layout);
-    logicalDevice.destroyRenderPass(pipeline.renderPass);
+    device.destroyCommandPool(commandPool);
+
+    device.destroyPipeline(pipeline.pipeline);
+    device.destroyPipelineLayout(pipeline.layout);
+    device.destroyRenderPass(pipeline.renderPass);
 
     for(auto frame : swapchain.frames)
     {
-        logicalDevice.destroyImageView(frame.imageView);
-        logicalDevice.destroyFramebuffer(frame.frameBuffer);
+        device.destroyImageView(frame.imageView);
+        device.destroyFramebuffer(frame.frameBuffer);
     }
 
-    logicalDevice.destroySwapchainKHR(swapchain.swapchain);
-    logicalDevice.destroy();
+    device.destroySwapchainKHR(swapchain.swapchain);
+    device.destroy();
 
     vkInstance.destroySurfaceKHR(surface);
     if(ENGINE_DEBUG)

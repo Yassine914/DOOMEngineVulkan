@@ -40,6 +40,9 @@ void App::Run()
     while(!window->WindowShouldClose())
     {
         window->NewFrame();
+
+        graphicsEngine->Render();
+
         CalculateFrameRate();
     }
 }

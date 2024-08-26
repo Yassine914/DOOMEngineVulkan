@@ -46,7 +46,7 @@ class Engine
 
     // device
     vk::PhysicalDevice physicalDevice{nullptr};
-    vk::Device logicalDevice{nullptr};
+    vk::Device device{nullptr};
     vk::Queue graphicsQueue{nullptr};
     vk::Queue presentQueue{nullptr};
 
@@ -83,8 +83,14 @@ class Engine
     // finalizing initialization
     void InitializeVKDrawing();
 
+    // commands
+    void RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx);
+
     public:
     // constructor and destructor
     Engine(i32 width, i32 height, Window *window);
+
+    void Render();
+
     ~Engine();
 };

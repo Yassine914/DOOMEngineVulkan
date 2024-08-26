@@ -45,6 +45,7 @@ using std::chrono::system_clock;
     #define TEXT_WHITE  "\x1b[0m"
 #endif
 
+#define LOG_NONE  0
 #define LOG_FATAL 1
 #define LOG_ERROR 2
 #define LOG_WARN  3
@@ -422,3 +423,5 @@ class Logger
             Log(LOG_INFO) << y;                                                                                        \
         }                                                                                                              \
     }
+
+#define LOG_SET_PRIORITY(x) Logger::SetLogLevel(x);
