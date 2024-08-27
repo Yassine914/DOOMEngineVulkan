@@ -33,12 +33,8 @@ include_directories("${LIB_DIR}/GLFW/include/")
 # VK
 find_package(Vulkan REQUIRED)
 
-# eigen
-include_directories("${LIB_DIR}/eigen3/")
-
-
-# add_library(glad STATIC "${LIB_DIR}/glad/src/glad.c" "src/main.cpp")
-# include_directories("${LIB_DIR}/glad/include/")
+# glm
+include_directories("${LIB_DIR}/glm")
 
 # file(GLOB IMGUI_SRC CMAKE_CONFIGURE_DEPENDS "${LIB_DIR}/imgui/src/*.cpp")
 # add_library(imgui STATIC "${IMGUI_SRC}" "src/main.cpp")
