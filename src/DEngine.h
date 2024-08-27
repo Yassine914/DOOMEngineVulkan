@@ -11,3 +11,5 @@
 #include <set>
 #include <map>
 #include <optional>
+
+#include <Eigen/Core>

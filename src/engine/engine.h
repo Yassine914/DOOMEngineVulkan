@@ -11,6 +11,8 @@ struct SwapChainFrame
     vk::ImageView imageView;
     vk::Framebuffer frameBuffer;
     vk::CommandBuffer commandBuffer;
+    vk::Semaphore imageAvailable, renderFinished;
+    vk::Fence inFlight;
 };
 
 struct SwapChainBundle
@@ -61,8 +63,7 @@ class Engine
     vk::CommandBuffer mainCommandBuffer;
 
     // synchronization
-    vk::Fence inFlightFence;
-    vk::Semaphore imageAvailable, renderFinished;
+    i32 maxFramesInFlight, frameNum;
 
     private:
     //_____ VK SPECIFIC _____

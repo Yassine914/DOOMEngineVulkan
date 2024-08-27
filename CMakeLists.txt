@@ -33,6 +33,10 @@ include_directories("${LIB_DIR}/GLFW/include/")
 # VK
 find_package(Vulkan REQUIRED)
 
+# eigen
+include_directories("${LIB_DIR}/eigen3/")
+
+
 # add_library(glad STATIC "${LIB_DIR}/glad/src/glad.c" "src/main.cpp")
 # include_directories("${LIB_DIR}/glad/include/")
 

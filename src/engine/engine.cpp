@@ -1,6 +1,7 @@
 #include "engine.h"
 
 #include "shader.h"
+#include "render.h"
 
 // constructor
 Engine::Engine(i32 width, i32 height, Window *window) : width{width}, height{height}, window{window}
@@ -572,6 +573,9 @@ void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physic
     bundle.extent = ext;
 
     swapchain = bundle;
+
+    maxFramesInFlight = static_cast<i32>(swapchain.frames.size());
+    frameNum = 0;
 }
 
 #pragma endregion
@@ -941,9 +945,12 @@ void Engine::InitializeVKDrawing()
     };
     mainCommandBuffer = CreateCommandBuffers(cmdIn);
 
-    inFlightFence = CreateFence(device);
-    imageAvailable = CreateSemaphore(device);
-    renderFinished = CreateSemaphore(device);
+    for(SwapChainFrame &frame : swapchain.frames)
+    {
+        frame.inFlight = CreateFence(device);
+        frame.imageAvailable = CreateSemaphore(device);
+        frame.renderFinished = CreateSemaphore(device);
+    }
 }
 
 #pragma endregion
@@ -993,31 +1000,31 @@ void Engine::RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx)
 
 void Engine::Render()
 {
-    device.waitForFences(1, &inFlightFence, VK_TRUE, UINT64_MAX);
-    device.resetFences(1, &inFlightFence);
+    device.waitForFences(1, &swapchain.frames[frameNum].inFlight, VK_TRUE, UINT64_MAX);
+    device.resetFences(1, &swapchain.frames[frameNum].inFlight);
 
-    u32 imageIdx = device.acquireNextImageKHR(swapchain.swapchain, UINT64_MAX, imageAvailable, nullptr).value;
+    u32 imageIdx = device.acquireNextImageKHR(swapchain.swapchain, UINT64_MAX, swapchain.frames[frameNum].imageAvailable, nullptr).value;
 
-    vk::CommandBuffer cmdBuffer = swapchain.frames[imageIdx].commandBuffer;
+    vk::CommandBuffer cmdBuffer = swapchain.frames[frameNum].commandBuffer;
     cmdBuffer.reset();
 
     RecordVKDrawCommands(cmdBuffer, imageIdx);
 
     vk::SubmitInfo submitInfo{};
-    vk::Semaphore waitSemaphores[] = {imageAvailable};
+    vk::Semaphore waitSemaphores[] = {swapchain.frames[frameNum].imageAvailable};
     vk::PipelineStageFlags waitStages[] = {vk::PipelineStageFlagBits::eColorAttachmentOutput};
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &cmdBuffer;
-    vk::Semaphore signalSemaphores[] = {renderFinished};
+    vk::Semaphore signalSemaphores[] = {swapchain.frames[frameNum].renderFinished};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
     try
     {
-        graphicsQueue.submit(submitInfo, inFlightFence);
+        graphicsQueue.submit(submitInfo, swapchain.frames[frameNum].inFlight);
     }
     catch (vk::SystemError err)
     {
@@ -1033,6 +1040,8 @@ void Engine::Render()
     presentInfo.pImageIndices = &imageIdx;
 
     presentQueue.presentKHR(presentInfo);
+
+    frameNum = (frameNum + 1) % maxFramesInFlight;
 }
 
 #pragma endregion
@@ -1043,19 +1052,19 @@ Engine::~Engine()
 {
     device.waitIdle();
 
-    device.destroyFence(inFlightFence);
-
-    device.destroySemaphore(imageAvailable);
-    device.destroySemaphore(renderFinished);
-
     device.destroyCommandPool(commandPool);
 
     device.destroyPipeline(pipeline.pipeline);
     device.destroyPipelineLayout(pipeline.layout);
     device.destroyRenderPass(pipeline.renderPass);
 
-    for(auto frame : swapchain.frames)
+    for(SwapChainFrame frame : swapchain.frames)
     {
+        device.destroyFence(frame.inFlight);
+
+        device.destroySemaphore(frame.imageAvailable);
+        device.destroySemaphore(frame.renderFinished);
+
         device.destroyImageView(frame.imageView);
         device.destroyFramebuffer(frame.frameBuffer);
     }
