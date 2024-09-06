@@ -2,8 +2,12 @@
 
 #include <DEngine.h>
 #include "../core/window.h"
+#include "scene.h"
 
-#pragma region Swapchain and Pipeline
+#include "../meshes/vertexMenagerie.h"
+#include "../meshes/triangle.h"
+
+#pragma region Structs
 
 struct SwapChainFrame
 {
@@ -28,6 +32,13 @@ struct GraphicsPipelineBundle
     vk::PipelineLayout layout;
     vk::RenderPass renderPass;
     vk::Pipeline pipeline;
+};
+
+struct CommandBufferIn
+{
+    vk::Device device;
+    vk::CommandPool commandPool;
+    std::vector<SwapChainFrame> &frames;
 };
 
 #pragma endregion
@@ -65,6 +76,9 @@ class Engine
     // synchronization
     i32 maxFramesInFlight, frameNum;
 
+    // asset ptrs
+    VertexMenagerie *meshes;
+
     private:
     //_____ VK SPECIFIC _____
     void MakeVKInstance(std::string name);
@@ -76,22 +90,31 @@ class Engine
     void MakeVKQueues(vk::Device device, vk::PhysicalDevice phyDevice);
 
     // present
-    void MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physicalDevice, vk::SurfaceKHR surface);
+    void MakeVKSwapChain();
+    void RecreateVKSwapchain();
 
     // pipeline
     void MakeVKGraphicsPipeline();
 
     // finalizing initialization
     void InitializeVKDrawing();
+    void MakeVKFrameBuffers();
+    void MakeVKFrameSyncObjects();
+
+    // assets
+    void MakeAssets();
+    void PrepareScene(vk::CommandBuffer buff);
 
     // commands
-    void RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx);
+    void RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx, Scene *scene);
+
+    void CleanupVKSwapchain();
 
     public:
     // constructor and destructor
     Engine(i32 width, i32 height, Window *window);
 
-    void Render();
+    void Render(Scene *scene);
 
     ~Engine();
 };

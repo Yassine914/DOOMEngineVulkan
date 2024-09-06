@@ -12,6 +12,9 @@ App::App(i32 width, i32 height) : window{new Window()}
 
     //_____ ENGINE INIT _____
     graphicsEngine = new Engine(width, height, window);
+
+    //_____ SCENE INIT ______
+    scene = new Scene();
 }
 
 void App::CalculateFrameRate()
@@ -41,7 +44,7 @@ void App::Run()
     {
         window->NewFrame();
 
-        graphicsEngine->Render();
+        graphicsEngine->Render(scene);
 
         CalculateFrameRate();
     }
@@ -49,6 +52,7 @@ void App::Run()
 
 App::~App()
 {
+    delete scene;
     delete graphicsEngine;
     delete window;
 }

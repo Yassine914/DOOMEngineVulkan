@@ -32,3 +32,4 @@ IndentAccessModifiers: false
 AccessModifierOffset: 0
 PackConstructorInitializers: BinPack
 AlignConsecutiveMacros: Consecutive
+AlignConsecutiveAssignments: Consecutive

@@ -2,6 +2,7 @@
 
 #include "shader.h"
 #include "render.h"
+#include "mesh.h"
 
 // constructor
 Engine::Engine(i32 width, i32 height, Window *window) : width{width}, height{height}, window{window}
@@ -17,11 +18,12 @@ Engine::Engine(i32 width, i32 height, Window *window) : width{width}, height{hei
     MakeVKLogicalDevice(physicalDevice);
     MakeVKQueues(device, physicalDevice);
 
-    MakeVKSwapChain(device, physicalDevice, surface);
-
     MakeVKGraphicsPipeline();
 
     InitializeVKDrawing();
+
+    // assets
+    MakeAssets();
 }
 
 // clang-format off
@@ -174,8 +176,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 )
 {
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
-        LERROR("vk validation layer: " << pCallbackData->pMessage << "\n");
-    
+        LERROR("Vulkan " << pCallbackData->pMessage << "\n");
+
     return VK_FALSE;
 }
 
@@ -330,7 +332,8 @@ void Engine::ChooseVKPhysicalDevice()
 
 #pragma endregion
 
-#pragma region LogicalDevice 
+#pragma region LogicalDevice
+
 struct QueueFamilyIndices
 {
     std::optional<u32> graphicsFamily;
@@ -393,7 +396,6 @@ void Engine::MakeVKLogicalDevice(vk::PhysicalDevice phyDevice)
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
 
-
     vk::PhysicalDeviceFeatures deviceFeat = vk::PhysicalDeviceFeatures();
 
     std::vector<const char *> enabledLayers;
@@ -420,6 +422,9 @@ void Engine::MakeVKLogicalDevice(vk::PhysicalDevice phyDevice)
         LERROR("VULKAN ERROR: failed to create logical device.\n\t" << err.what() << "\n");
         exit(202);
     }
+
+    MakeVKSwapChain();
+    frameNum = 0;
 }
 
 void Engine::MakeVKQueues(vk::Device logDevice, vk::PhysicalDevice phyDevice)
@@ -490,8 +495,46 @@ vk::Extent2D ChooseSwapChainExtent(vk::SurfaceCapabilitiesKHR capabilities, u32 
     return ext;
 }
 
-void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physicalDevice, 
-                             vk::SurfaceKHR surface)
+vk::CommandBuffer CreateCommandBuffer(CommandBufferIn cmdIn)
+{
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = cmdIn.commandPool;
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
+
+    try
+    {
+        vk::CommandBuffer buffer = cmdIn.device.allocateCommandBuffers(allocInfo)[0];
+        return buffer;
+    }
+    catch(vk::SystemError err)
+    {
+        LERROR("VULKAN ERROR: couldn't allocate main command buffer.\n\t" << err.what() << "\n");
+        return nullptr;
+    }
+}
+
+void CreateFrameCommandBuffers(CommandBufferIn cmdIn)
+{
+    vk::CommandBufferAllocateInfo allocInfo{};
+    allocInfo.commandPool = cmdIn.commandPool;
+    allocInfo.level = vk::CommandBufferLevel::ePrimary;
+    allocInfo.commandBufferCount = 1;
+
+    for(i32 i = 0; i < cmdIn.frames.size(); i++)
+    {
+        try
+        {
+            cmdIn.frames[i].commandBuffer = cmdIn.device.allocateCommandBuffers(allocInfo)[0];
+        }
+        catch (vk::SystemError err)
+        {
+            LERROR("VULKAN ERROR: couldn't allocate a frame command buffer.\n\t" << err.what() << "\n");
+        }
+    }
+}
+
+void Engine::MakeVKSwapChain()
 {
     SwapChainSupportDetails support = QuerySwapChainSupport(physicalDevice, surface);
 
@@ -536,7 +579,7 @@ void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physic
 
     try
     {
-        bundle.swapchain = logicalDevice.createSwapchainKHR(swapchainInfo);
+        bundle.swapchain = device.createSwapchainKHR(swapchainInfo);
     }
     catch (vk::SystemError err)
     {
@@ -544,7 +587,7 @@ void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physic
         exit(505);
     }
 
-    std::vector<vk::Image> images = logicalDevice.getSwapchainImagesKHR(bundle.swapchain);
+    std::vector<vk::Image> images = device.getSwapchainImagesKHR(bundle.swapchain);
     bundle.frames.resize(images.size());
     for(u64 i = 0; i < images.size(); i++)
     {
@@ -566,7 +609,7 @@ void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physic
         imViewInfo.subresourceRange.layerCount = 1;
         
         bundle.frames[i].image = images[i];
-        bundle.frames[i].imageView = logicalDevice.createImageView(imViewInfo);
+        bundle.frames[i].imageView = device.createImageView(imViewInfo);
     }
 
     bundle.format = fmt.format;
@@ -575,7 +618,31 @@ void Engine::MakeVKSwapChain(vk::Device logicalDevice, vk::PhysicalDevice physic
     swapchain = bundle;
 
     maxFramesInFlight = static_cast<i32>(swapchain.frames.size());
-    frameNum = 0;
+}
+
+void Engine::RecreateVKSwapchain()
+{
+    width = 0;
+    height = 0;
+    while(width == 0 || height == 0)
+    {
+        glfwGetFramebufferSize(window->GetWindow(), &width, &height);
+        glfwWaitEvents();
+    }
+
+    device.waitIdle();
+
+    CleanupVKSwapchain();
+    MakeVKSwapChain();
+    MakeVKFrameBuffers();
+    MakeVKFrameSyncObjects();
+    
+    CommandBufferIn cmdIn = {
+        .device = device,
+        .commandPool = commandPool,
+        .frames = swapchain.frames,
+    };
+    CreateFrameCommandBuffers(cmdIn);
 }
 
 #pragma endregion
@@ -596,8 +663,17 @@ vk::PipelineLayout CreateGraphicsPipelineLayout(vk::Device device)
 {
     vk::PipelineLayoutCreateInfo layoutInfo{};
     layoutInfo.flags = vk::PipelineLayoutCreateFlags();
+    
+    // descriptor sets
     layoutInfo.setLayoutCount = 0;
-    layoutInfo.pushConstantRangeCount = 0;
+    
+    // push constants
+    layoutInfo.pushConstantRangeCount = 1;
+    vk::PushConstantRange pushConstantInfo{};
+    pushConstantInfo.offset = 0;
+    pushConstantInfo.size = sizeof(DEUtil::ObjectData);
+    pushConstantInfo.stageFlags = vk::ShaderStageFlagBits::eVertex;
+    layoutInfo.pPushConstantRanges = &pushConstantInfo;
 
     try
     {
@@ -660,10 +736,15 @@ GraphicsPipelineBundle CreateGraphicsPipeline(GraphicsPipelineInBundle spec)
     std::vector<vk::PipelineShaderStageCreateInfo> shaderStages;
 
     // vertex input
+    vk::VertexInputBindingDescription bindingDesc = GetPosColorBindingDescription();
+    std::array<vk::VertexInputAttributeDescription, 2> attributes = GetPosColorAttributeDescription();
+
     vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.flags =  vk::PipelineVertexInputStateCreateFlags();
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDesc;
+    vertexInputInfo.vertexAttributeDescriptionCount = 2;
+    vertexInputInfo.pVertexAttributeDescriptions = attributes.data();
     pipelineInfo.pVertexInputState = &vertexInputInfo;
 
     // input assembly
@@ -838,13 +919,6 @@ void CreateFrameBuffers(FrameBufferIn bufferIn, std::vector<SwapChainFrame> &fra
     }
 }
 
-struct CommandBufferIn
-{
-    vk::Device device;
-    vk::CommandPool commandPool;
-    std::vector<SwapChainFrame> &frames;
-};
-
 vk::CommandPool CreateCommandPool(vk::Device device, vk::PhysicalDevice phyDevice, vk::SurfaceKHR surface)
 {
     QueueFamilyIndices qFamilyIndices = FindQueueFamilies(phyDevice, surface);
@@ -860,37 +934,6 @@ vk::CommandPool CreateCommandPool(vk::Device device, vk::PhysicalDevice phyDevic
     catch(vk::SystemError err)
     {
         LERROR("VULKAN ERROR: couldn't create a command pool.\n\t" << err.what() << "\n");
-        return nullptr;
-    }
-}
-
-vk::CommandBuffer CreateCommandBuffers(CommandBufferIn cmdIn)
-{
-    vk::CommandBufferAllocateInfo allocInfo{};
-    allocInfo.commandPool = cmdIn.commandPool;
-    allocInfo.level = vk::CommandBufferLevel::ePrimary;
-    allocInfo.commandBufferCount = 1;
-
-    for(i32 i = 0; i < cmdIn.frames.size(); i++)
-    {
-        try
-        {
-            cmdIn.frames[i].commandBuffer = cmdIn.device.allocateCommandBuffers(allocInfo)[0];
-        }
-        catch(vk::SystemError err)
-        {
-            LERROR("VULKAN ERROR: couldn't allocate command buffers.\n\t" << err.what() << "\n");
-        }
-    }
-
-    try
-    {
-        vk::CommandBuffer mainBuff = cmdIn.device.allocateCommandBuffers(allocInfo)[0];
-        return mainBuff;
-    }
-    catch(vk::SystemError err)
-    {
-        LERROR("VULKAN ERROR: couldn't allocate main command buffer.\n\t" << err.what() << "\n");
         return nullptr;
     }
 }
@@ -927,7 +970,7 @@ vk::Fence CreateFence(vk::Device device)
     }
 }
 
-void Engine::InitializeVKDrawing()
+void Engine::MakeVKFrameBuffers()
 {
     FrameBufferIn frameBufferIn = {
         .device = device,
@@ -935,16 +978,10 @@ void Engine::InitializeVKDrawing()
         .swapchainExtent = swapchain.extent,
     };
     CreateFrameBuffers(frameBufferIn, swapchain.frames);
-    
-    commandPool = CreateCommandPool(device, physicalDevice, surface);
+}
 
-    CommandBufferIn cmdIn = {
-        .device = device,
-        .commandPool = commandPool,
-        .frames = swapchain.frames,
-    };
-    mainCommandBuffer = CreateCommandBuffers(cmdIn);
-
+void Engine::MakeVKFrameSyncObjects()
+{
     for(SwapChainFrame &frame : swapchain.frames)
     {
         frame.inFlight = CreateFence(device);
@@ -953,11 +990,50 @@ void Engine::InitializeVKDrawing()
     }
 }
 
+void Engine::InitializeVKDrawing()
+{
+    MakeVKFrameBuffers();
+   
+    commandPool = CreateCommandPool(device, physicalDevice, surface);
+
+    CommandBufferIn cmdIn = {
+        .device = device,
+        .commandPool = commandPool,
+        .frames = swapchain.frames,
+    };
+    mainCommandBuffer = CreateCommandBuffer(cmdIn);
+    CreateFrameCommandBuffers(cmdIn);
+
+    MakeVKFrameSyncObjects();
+}
+
 #pragma endregion
 
 #pragma region Drawing
 
-void Engine::RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx)
+void Engine::MakeAssets()
+{
+    meshes = new VertexMenagerie();
+
+    std::vector<f32> vertices = {
+        0.0f, -0.05f, 1.0f, 0.0f, 0.0f,
+        0.05f, 0.05f, 0.0f, 1.0f, 0.0f,
+        -0.05f, 0.05f, 0.0f, 0.0f, 1.0f
+    };
+    MeshType type = MeshType::TRIANGLE;
+    meshes->Consume(type, vertices);
+
+    meshes->Finalize(device, physicalDevice);
+}
+
+void Engine::PrepareScene(vk::CommandBuffer cmdBuff)
+{
+    vk::Buffer vertexBuffers[] = {meshes->vertexBuffer.buffer};
+    vk::DeviceSize offsets[] = {0};
+    cmdBuff.bindVertexBuffers(0, 1, vertexBuffers, offsets);
+}
+
+void Engine::RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx, Scene *scene)
 {
     vk::CommandBufferBeginInfo beginInfo{};
     try
@@ -983,7 +1059,18 @@ void Engine::RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx)
     commandBuffer.beginRenderPass(&passInfo, vk::SubpassContents::eInline);
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline.pipeline);
 
-    commandBuffer.draw(3, 1, 0, 0);
+    PrepareScene(commandBuffer);
+
+    VertexData vertexData = meshes->vertexAttribData.find(MeshType::TRIANGLE)->second;
+    for(glm::vec3 pos : scene->triPos)
+    {
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), pos);
+        DEUtil::ObjectData objData;
+        objData.model = model;
+        commandBuffer.pushConstants(pipeline.layout, vk::ShaderStageFlagBits::eVertex, 0, sizeof(objData), &objData);
+        
+        commandBuffer.draw(vertexData.size, 1, vertexData.offset, 0);
+    }
 
     commandBuffer.endRenderPass();
 
@@ -998,17 +1085,29 @@ void Engine::RecordVKDrawCommands(vk::CommandBuffer commandBuffer, u32 imageIdx)
 
 }
 
-void Engine::Render()
+void Engine::Render(Scene *scene)
 {
     device.waitForFences(1, &swapchain.frames[frameNum].inFlight, VK_TRUE, UINT64_MAX);
-    device.resetFences(1, &swapchain.frames[frameNum].inFlight);
 
-    u32 imageIdx = device.acquireNextImageKHR(swapchain.swapchain, UINT64_MAX, swapchain.frames[frameNum].imageAvailable, nullptr).value;
+    u32 imageIdx;
+    try
+    {
+        vk::ResultValue aquire = device.acquireNextImageKHR(
+            swapchain.swapchain, UINT64_MAX, swapchain.frames[frameNum].imageAvailable, nullptr
+        );
+
+        imageIdx = aquire.value;
+    }
+    catch(vk::OutOfDateKHRError err)
+    {
+        RecreateVKSwapchain();
+        return;
+    }
 
     vk::CommandBuffer cmdBuffer = swapchain.frames[frameNum].commandBuffer;
     cmdBuffer.reset();
 
-    RecordVKDrawCommands(cmdBuffer, imageIdx);
+    RecordVKDrawCommands(cmdBuffer, imageIdx, scene);
 
     vk::SubmitInfo submitInfo{};
     vk::Semaphore waitSemaphores[] = {swapchain.frames[frameNum].imageAvailable};
@@ -1022,6 +1121,8 @@ void Engine::Render()
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
+    device.resetFences(1, &swapchain.frames[frameNum].inFlight);
+    
     try
     {
         graphicsQueue.submit(submitInfo, swapchain.frames[frameNum].inFlight);
@@ -1039,7 +1140,21 @@ void Engine::Render()
     presentInfo.pSwapchains = swapchains;
     presentInfo.pImageIndices = &imageIdx;
 
-    presentQueue.presentKHR(presentInfo);
+    vk::Result present;
+    try
+    {
+        present = presentQueue.presentKHR(presentInfo);
+    }
+    catch(vk::OutOfDateKHRError err)
+    {
+        present = vk::Result::eErrorOutOfDateKHR;   
+    }
+
+    if(present == vk::Result::eErrorOutOfDateKHR || present == vk::Result::eSuboptimalKHR)
+    {
+        RecreateVKSwapchain();
+        return;
+    }
 
     frameNum = (frameNum + 1) % maxFramesInFlight;
 }
@@ -1048,16 +1163,8 @@ void Engine::Render()
 
 // clang-format on
 
-Engine::~Engine()
+void Engine::CleanupVKSwapchain()
 {
-    device.waitIdle();
-
-    device.destroyCommandPool(commandPool);
-
-    device.destroyPipeline(pipeline.pipeline);
-    device.destroyPipelineLayout(pipeline.layout);
-    device.destroyRenderPass(pipeline.renderPass);
-
     for(SwapChainFrame frame : swapchain.frames)
     {
         device.destroyFence(frame.inFlight);
@@ -1070,6 +1177,22 @@ Engine::~Engine()
     }
 
     device.destroySwapchainKHR(swapchain.swapchain);
+}
+
+Engine::~Engine()
+{
+    device.waitIdle();
+
+    device.destroyCommandPool(commandPool);
+
+    device.destroyPipeline(pipeline.pipeline);
+    device.destroyPipelineLayout(pipeline.layout);
+    device.destroyRenderPass(pipeline.renderPass);
+
+    CleanupVKSwapchain();
+
+    delete meshes;
+
     device.destroy();
 
     vkInstance.destroySurfaceKHR(surface);

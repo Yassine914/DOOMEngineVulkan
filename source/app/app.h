@@ -3,12 +3,14 @@
 #include <DEngine.h>
 #include "../core/window.h"
 #include "../engine/engine.h"
+#include "../engine/scene.h"
 
 class App
 {
     private:
     Engine *graphicsEngine;
     Window *window;
+    Scene *scene;
 
     f64 lastTime, currentTime;
     i32 numFrames;
